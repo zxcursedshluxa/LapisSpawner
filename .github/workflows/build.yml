@@ -1,0 +1,30 @@
+name: Build Mod
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Unzip Project
+        run: unzip lapis.zip -d ./
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '21'
+      - name: Make Gradle Executable
+        run: |
+          cd lapis || true
+          chmod +x gradlew || true
+      - name: Build Mod
+        run: |
+          cd lapis || true
+          ./gradlew build --no-daemon
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LapisSpawner-Mod
+          path: |
+            build/libs/*.jar
+            lapis/build/libs/*.jar
