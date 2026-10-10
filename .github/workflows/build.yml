@@ -1,4 +1,4 @@
-name: Build Mod
+name: Build Mod Clean
 on: [push, pull_request]
 jobs:
   build:
@@ -6,37 +6,87 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-      - name: Unzip Project
-        run: unzip lapis.zip -d ./
-      - name: Fix gradle.properties
-        run: |
-          cd lapis || true
-          echo "minecraft_version=1.21.4" > gradle.properties
-          echo "yarn_mappings=1.21.4+build.2" >> gradle.properties
-          echo "loader_version=0.16.10" >> gradle.properties
-          echo "lombok_version=1.18.30" >> gradle.properties
-          echo "mod_version=1.0.0" >> gradle.properties
-          echo "maven_group=com.example" >> gradle.properties
-          echo "archives_base_name=lapisspawner" >> gradle.properties
-          echo "fabric_version=0.112.0+1.21.4" >> gradle.properties
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'microsoft'
           java-version: '21'
+      - name: Download Fresh Fabric Template
+        run: |
+          curl -L https://github.com -o template.zip
+          unzip template.zip
+          mv fabric-example-mod-1.21.4/* ./
+          mv fabric-example-mod-1.21.4/.[!.]* ./ || true
+      - name: Configure Mod ID and Names
+        run: |
+          sed -i 's/modid/lapisspawner/g' fabric.mod.json
+          sed -i 's/Example Mod/Lapis Spawner/g' fabric.mod.json
+          mv src/main/resources/modid.mixins.json src/main/resources/lapisspawner.mixins.json
+          sed -i 's/modid/lapisspawner/g' src/main/resources/lapisspawner.mixins.json
+      - name: Create Java Mixin Code
+        run: |
+          mkdir -p src/main/java/net/fabricmc/example/mixin
+          cat << 'EOF' > src/main/java/net/fabricmc/example/mixin/LapisSpawnerMixin.java
+          package net.fabricmc.example.mixin;
+
+          import net.minecraft.block.BlockState;
+          import net.minecraft.block.Blocks;
+          import net.minecraft.block.entity.BlockEntity;
+          import net.minecraft.block.entity.MobSpawnerBlockEntity;
+          import net.minecraft.client.world.ClientWorld;
+          import net.minecraft.entity.EntityType;
+          import net.minecraft.util.math.BlockPos;
+          import org.spongepowered.asm.mixin.Mixin;
+          import org.spongepowered.asm.mixin.injection.At;
+          import org.spongepowered.asm.mixin.injection.Inject;
+          import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+          @Mixin(ClientWorld.class)
+          public class LapisSpawnerMixin {
+              @Inject(method = "getBlockEntity", at = @At("HEAD"), cancellable = true)
+              private void onGetBlockEntity(BlockPos pos, CallbackInfoReturnable<BlockEntity> cir) {
+                  ClientWorld world = (ClientWorld) (Object) this;
+                  BlockState state = world.getBlockState(pos);
+                  if (state.isOf(Blocks.LAPIS_BLOCK)) {
+                      MobSpawnerBlockEntity spawner = new MobSpawnerBlockEntity(pos, Blocks.SPAWNER.getDefaultState());
+                      spawner.getLogic().setEntityId(EntityType.CREEPER, world);
+                      cir.setReturnValue(spawner);
+                  }
+              }
+          }
+          EOF
+      - name: Register Mixin in JSON
+        run: |
+          cat << 'EOF' > src/main/resources/lapisspawner.mixins.json
+          {
+            "required": true,
+            "package": "net.fabricmc.example.mixin",
+            "compatibilityLevel": "JAVA_21",
+            "mixins": [
+              "LapisSpawnerMixin"
+            ],
+            "injectors": {
+              "defaultRequire": 1
+            }
+          }
+          EOF
+      - name: Create Blockstate Model for Lapis
+        run: |
+          mkdir -p src/main/resources/assets/minecraft/blockstates
+          cat << 'EOF' > src/main/resources/assets/minecraft/blockstates/lapis_block.json
+          {
+            "variants": {
+              "": { "model": "minecraft:block/spawner" }
+            }
+          }
+          EOF
       - name: Make Gradle Executable
-        run: |
-          cd lapis || true
-          chmod +x gradlew || true
+        run: chmod +x gradlew
       - name: Build Mod
-        run: |
-          cd lapis || true
-          ./gradlew build --no-daemon
+        run: ./gradlew build --no-daemon
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LapisSpawner-Mod
-          path: |
-            build/libs/*.jar
-            lapis/build/libs/*.jar
+          path: build/libs/*.jar
 
